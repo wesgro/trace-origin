@@ -1,0 +1,22 @@
+{
+    "name": "import-tracer",
+    "type": "module",
+    "scripts": {
+        "test": "vitest",
+        "test:run": "vitest run",
+        "test:watch": "vitest --watch",
+        "test:ui": "vitest --ui",
+        "test:coverage": "vitest run --coverage"
+    },
+    "dependencies": {
+        "ts-morph": "^26.0.0",
+        "typescript": "^5.8.3"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.15",
+        "vitest": "^3.2.4"
+    },
+    "volta": {
+        "node": "24.4.1"
+    }
+}
