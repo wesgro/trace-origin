@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "ts-morph";
-import { SyntaxKind } from "ts-morph";
+import { SyntaxKind, ts } from "ts-morph";
 import { relative, dirname } from "path";
 
 export interface TraceOriginOptions {
@@ -17,32 +17,14 @@ export interface TraceOriginOptions {
  */
 export function traceOrigin(node: Node, options?: TraceOriginOptions): string | undefined {
   try {
-    // Get the target node to resolve
     const targetNode = getTargetNodeForResolution(node);
     if (!targetNode) {
       return undefined;
     }
 
-    // Get the symbol at this location using ts-morph's API
-    let symbol = targetNode.getSymbol();
-    
+    let symbol = getOriginalSymbol(targetNode);
     if (!symbol) {
       return undefined;
-    }
-
-    // Handle aliasing (import/export aliases) - keep following until we get the real symbol
-    const visited = new Set<Symbol>(); // Use Symbol objects directly for better tracking
-    while (symbol.isAlias()) {
-      if (visited.has(symbol)) {
-        break; // Circular alias detected, stop here
-      }
-      visited.add(symbol);
-
-      const aliasedSymbol = symbol.getAliasedSymbol();
-      if (!aliasedSymbol) {
-        break;
-      }
-      symbol = aliasedSymbol;
     }
 
     // Get the original declaration
@@ -75,6 +57,86 @@ export function traceOrigin(node: Node, options?: TraceOriginOptions): string | 
     // Return undefined for any errors (malformed code, missing symbols, etc.)
     return undefined;
   }
+}
+
+/**
+ * Follows a symbol through aliases and variable declarations to its original declaration.
+ * This handles cases like imports, exports, re-exports, and local variable aliasing.
+ */
+function getOriginalSymbol(node: Node): Symbol | undefined {
+  let current = node;
+  let symbol: Symbol | undefined = current.getSymbol();
+
+  const visited = new Set<Symbol>();
+  for (let i = 0; i < 30; i++) {
+    if (!symbol || visited.has(symbol)) {
+      break;
+    }
+    visited.add(symbol);
+
+    const parent = current.getParent();
+    if (parent?.isKind(SyntaxKind.PropertyAccessExpression) && parent.getExpression() === current) {
+      const propertyName = parent.getName();
+      const resolvedSymbol = resolvePropertySymbol(symbol, propertyName, visited);
+      if (resolvedSymbol) {
+        symbol = resolvedSymbol;
+        const decl = symbol.getDeclarations()[0];
+        if (decl) current = decl;
+        continue;
+      }
+    }
+    
+    if (symbol.isAlias()) {
+      const aliasedSymbol = symbol.getAliasedSymbol();
+      if (aliasedSymbol) {
+        symbol = aliasedSymbol;
+        const decl = symbol.getDeclarations()[0];
+        if (decl) current = decl;
+        continue;
+      }
+    }
+    
+    const declarations = symbol.getDeclarations();
+    if (declarations.length > 0) {
+      const declaration = declarations[0];
+      if (declaration.isKind(SyntaxKind.VariableDeclaration)) {
+        const initializer = declaration.getInitializer();
+        if (initializer) {
+          const initializerSymbol = initializer.getSymbol();
+          if (initializerSymbol) {
+            symbol = initializerSymbol;
+            current = initializer;
+            continue;
+          }
+        }
+      }
+    }
+
+    break;
+  }
+
+  return symbol;
+}
+
+/**
+ * Resolves the symbol of a property within a composite object (e.g., via Object.assign or spreads).
+ */
+function resolvePropertySymbol(symbol: Symbol, propertyName: string, visited: Set<Symbol>): Symbol | undefined {
+  const declarations = symbol.getDeclarations();
+  if (declarations.length === 0) return undefined;
+
+  const declaration = declarations[0];
+  const type = declaration.getType();
+  const prop = type.getProperty(propertyName);
+
+  if (prop) {
+    const decls = prop.getDeclarations();
+    if (decls.length > 0) {
+      return getOriginalSymbol(decls[0]);
+    }
+  }
+
+  return undefined;
 }
 
 /**

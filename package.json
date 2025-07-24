@@ -2,7 +2,7 @@
     "name": "import-tracer",
     "type": "module",
     "scripts": {
-        "test": "vitest"
+        "test": "vitest run"
     },
     "dependencies": {
         "ts-morph": "^26.0.0",

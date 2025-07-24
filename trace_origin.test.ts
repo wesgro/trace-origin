@@ -242,6 +242,49 @@ describe("traceOrigin", () => {
     expect(endTime - startTime).toBeLessThan(1000); // Should complete within 1 second
   });
 
+  describe("Milestone 1 - Deep Object Structure Resolution", () => {
+    it("resolves Object.assign barrel", () => {
+      const project = createTestProject([
+        { path: "/root/src/a.ts", content: "export const Foo = 1;" },
+        { path: "/root/src/c.ts", content: "export const Bar = 2;" },
+        { path: "/root/src/b.ts", content: "import * as A from './a'; import * as C from './c'; export const Merged = Object.assign({}, A, C);" },
+        { path: "/root/src/index.ts", content: "import { Merged } from './b'; Merged.Foo;" }
+      ]);
+
+      const propertyAccess = findPropertyAccess(project, "/root/src/index.ts");
+      const objectIdentifier = propertyAccess.getFirstChild()!; // Should be the "Merged" identifier
+
+      const path = traceOrigin(objectIdentifier);
+      expect(path).toBe("/root/src/a.ts");
+    });
+
+    it("resolves direct re-assignment alias", () => {
+      const project = createTestProject([
+        { path: "/root/src/a.ts", content: "export const Foo = 1;" },
+        { path: "/root/src/b.ts", content: "import { Foo } from './a'; const Alias = Foo; export { Alias };" },
+        { path: "/root/src/index.ts", content: "import { Alias } from './b'; Alias;" }
+      ]);
+
+      const useSite = findIdentifier(project, "/root/src/index.ts", "Alias");
+      const path = traceOrigin(useSite);
+      expect(path).toBe("/root/src/a.ts");
+    });
+
+    it("resolves post-import mutation", () => {
+      const project = createTestProject([
+        { path: "/root/src/a.ts", content: "export const Foo = { Bar: 1 };" },
+        { path: "/root/src/b.ts", content: "import { Foo } from './a'; Foo.Bar = 2; export { Foo };" },
+        { path: "/root/src/index.ts", content: "import { Foo } from './b'; Foo.Bar;" }
+      ]);
+
+      const propertyAccess = findPropertyAccess(project, "/root/src/index.ts");
+      const objectIdentifier = propertyAccess.getFirstChild()!; // Should be the "Foo" identifier
+
+      const path = traceOrigin(objectIdentifier);
+      expect(path).toBe("/root/src/a.ts");
+    });
+  });
+
   describe("relative path option", () => {
     it("returns relative path when option is enabled", () => {
       const project = createTestProject([
